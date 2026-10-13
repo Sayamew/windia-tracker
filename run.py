@@ -120,20 +120,29 @@ def scan_once(screen, ocr, inspector, uploader, cfg, state: State, namer=None, c
         # the same person may have been clicked a moment ago through a neighbouring tag
         if key in done_keys or state.on_cooldown(key, time.time()):
             continue
-        result = inspector.inspect(tag, skip=lambda n: state.on_cooldown(norm_name(n), time.time()))
+        def is_target(name: str, key=key) -> bool:
+            n = norm_name(name)
+            return state._same(n, key) or state._same(n, state.alias.get(key, key))
+
+        def record(res, tag=tag) -> None:
+            """Save a reading (the person we aimed at, or a neighbour whose window opened instead)."""
+            avatar = (res.avatar_png or crop_avatar(frame, tag, cfg["avatar_box"])) if is_target(res.name) else (res.avatar_png or None)
+            final = book.vote(res.name) if book else res.name
+            entries.append(uploader.make_entry(final, res.level, res.job, avatar, res.fame))
+            state.clicked[norm_name(res.name)] = time.time()
+            done_keys.add(norm_name(res.name))
+            log.info("read %s: level %s, %s, fame %s", final, res.level, res.job, res.fame)
+
+        result = inspector.inspect(tag, is_target=is_target, on_other=record)
         inspected += 1
         t_now = time.time()
         if result:
-            # Save under the name shown in the info window (large font, more reliable than the tag).
-            avatar = result.avatar_png or crop_avatar(frame, tag, cfg["avatar_box"])
-            final = book.vote(result.name) if book else result.name
-            entries.append(uploader.make_entry(final, result.level, result.job, avatar, result.fame))
+            record(result)
             state.mark_clicked(key, norm_name(result.name), t_now)
             done_keys.add(key)
-            log.info("read %s: level %s, %s, fame %s", final, result.level, result.job, result.fame)
         else:
             state.mark_failed(key, t_now)
-            log.info("could not read a player window for '%s' (NPC, pet, hidden or misread name)", tag.name)
+            log.info("could not open the window of '%s' (NPC, pet, hidden or misread name)", tag.name)
 
     # Everyone seen but not inspected this round: heartbeat so "last checked" stays fresh.
     for t in tags:

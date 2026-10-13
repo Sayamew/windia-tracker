@@ -26,7 +26,7 @@ Press **Test connection**, then **Save**.
 1. Game at **1920x1080**, windowed or borderless, bot character in Henesys CH10 with players around. Close the Character Info window.
 2. Run **MapleCalibrate.exe**. Open `debug_screen.png`: green boxes are the player names it found, yellow dots are where it will double-click (they should sit on the characters).
 3. Run **MapleCalibrate.exe --test** (from Command Prompt in that folder). It double-clicks the first player found, reads their Character Info window, closes it, and prints name / level / job / fame. It also saves `info_sprite.png`.
-4. If the dots miss the characters, change `click_offsets` in `config.json` (pixels above the name; default `-50, -36, -64`).
+4. The bot clicks several spots on a character body until the right window opens (overlapping players often open the one in front; that player is saved too). Tune `click_spots` and `max_click_tries` in `config.json` if needed.
    If real players are missing, check `own_character` and `ignore_zones`.
 
 ## 4. Run

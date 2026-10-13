@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from dataclasses import dataclass
 
@@ -96,33 +97,46 @@ class Inspector:
             pass
 
     # -- main entry ------------------------------------------------------------------------------
-    def inspect(self, tag: NameTag, skip=None) -> Inspection | None:
-        """Returns the reading for the player whose window opened, or None if no player window opened.
-        (If a neighbouring player was clicked instead, that player's reading is returned; the caller
-        saves it under the name in the window.)"""
-        offsets = self.cfg.get("click_offsets", [-50, -36, -64])
+    # (dx, dy) in pixels at 1080p from the middle of the name tag; dy is negative = up the body
+    SPOTS = [(0, -50), (0, -36), (0, -64), (-14, -46), (14, -46), (-16, -60), (16, -60),
+             (-10, -30), (10, -30), (0, -78), (-22, -48), (22, -48)]
+
+    def inspect(self, tag: NameTag, is_target=None, on_other=None) -> Inspection | None:
+        """Double-clicks spots on the tag's character until the window that opens belongs to that
+        character. With overlapping sprites the game opens whoever is in front, so a wrong window is
+        handed to `on_other` (it is still a valid reading) and the next spot is tried. Returns the
+        target's reading, or None if no spot produced it. Without `is_target`, any window counts."""
+        spots = self.cfg.get("click_spots") or self.SPOTS
+        tries = int(self.cfg.get("max_click_tries", 8))
         wait = float(self.cfg.get("open_wait_seconds", 0.6))
+        seen_other: dict[str, int] = {}
         try:
             self._close_info()  # start from a clean screen
             before = self.screen.grab()
             sc = self.screen.rect.height / 1080
-            for dy in offsets:
-                cx = tag.center_x
+            made = 0
+            for dx, dy in spots:
+                if made >= tries:
+                    break
+                cx = max(0, tag.center_x + int(dx * sc))
                 cy = max(0, tag.y + int(dy * sc))
                 if click_blocked(before, cx, cy, sc):  # a game box / balloon is over this spot
                     continue
-                pyautogui.moveTo(*self.screen.to_screen(cx, cy), duration=0.08)
+                made += 1
+                pyautogui.moveTo(*self.screen.to_screen(cx, cy), duration=random.uniform(0.06, 0.14))
                 pyautogui.doubleClick(interval=0.07)
                 time.sleep(wait)
                 result = self._read_open_window(self.screen.grab())
                 if result is not None:
-                    if skip and skip(result.name):
-                        # A neighbouring player we already did this hour was hit (overlapping sprites): try another spot.
-                        log.info("hit %s again, trying another spot on %s", result.name, tag.name)
-                        self._close_info()
-                        continue
-                    return result
-                self._close_info()  # something opened but unreadable, or nothing: reset and retry
+                    if is_target is None or is_target(result.name):
+                        return result
+                    seen_other[result.name] = seen_other.get(result.name, 0) + 1
+                    if seen_other[result.name] >= 3:
+                        return result  # the same person keeps opening: the tag was probably misread
+                    if on_other and seen_other[result.name] == 1:
+                        on_other(result)
+                    log.info("opened %s instead of %s, trying another spot", result.name, tag.name)
+                self._close_info()  # wrong person or nothing readable: reset and retry elsewhere
             return None
         finally:
             self._close_info()
