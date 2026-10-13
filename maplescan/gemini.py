@@ -28,7 +28,7 @@ Return a JSON object: {"name": string|null, "level": integer|null, "job_text": s
   __JOBS__
   (e.g. "F/P Wizard" -> "Wizard (Fire/Poison)", "I/L Mage" -> "Mage (Ice/Lightning)").
   IMPORTANT: long job names are CUT OFF at the right edge of the row, e.g. "I/L Mag", "F/P Wiz", "Ice/Lightn", "Crossbowma".
-  Map by what is visible. Wizard (2nd job) and Mage (3rd job) differ only by that last word; if it is cut off before
+  "Swordsman" is the Warrior 1st job. Map by what is visible. Wizard (2nd job) and Mage (3rd job) differ only by that last word; if it is cut off before
   you can tell, use the element (F/P or I/L) and set job to null but copy the visible text into job_text. Do not pick a different job
   that merely looks similar; Cleric and Priest, Page and White Knight, Hunter and Ranger are different jobs.
 - fame: the number in the FAME row (it can be negative, e.g. -7)

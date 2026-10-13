@@ -274,7 +274,8 @@ _SIMPLE.update({
     "crossbowmen": "Crossbowman", "crossbow": "Crossbowman", "xbowman": "Crossbowman",
     "dk": "Dragon Knight", "wk": "White Knight", "dragonknights": "Dragon Knight",
     "gunslingers": "Gunslinger", "bowmen": "Bowman", "pages": "Page", "clerics": "Cleric",
-    "fighters": "Fighter", "spearmen": "Spearman", "magicians": "Magician", "pirates": "Pirate",
+    "swordsman": "Warrior", "swordman": "Warrior", "swordsmen": "Warrior", "swordmen": "Warrior",
+    "archer": "Bowman", "rogue": "Thief", "fighters": "Fighter", "spearmen": "Spearman", "magicians": "Magician", "pirates": "Pirate",
 })
 
 
