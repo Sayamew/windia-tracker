@@ -26,7 +26,10 @@ Return a JSON object: {"name": string|null, "level": integer|null, "job_text": s
 - job_text: the JOB row text exactly as written
 - job: the SAME text mapped to exactly one of these valid values, or null if none fits:
   __JOBS__
-  (e.g. "F/P Wizard" -> "Wizard (Fire/Poison)", "I/L Mage" -> "Mage (Ice/Lightning)"). Do not pick a different job
+  (e.g. "F/P Wizard" -> "Wizard (Fire/Poison)", "I/L Mage" -> "Mage (Ice/Lightning)").
+  IMPORTANT: long job names are CUT OFF at the right edge of the row, e.g. "I/L Mag", "F/P Wiz", "Ice/Lightn", "Crossbowma".
+  Map by what is visible. Wizard (2nd job) and Mage (3rd job) differ only by that last word; if it is cut off before
+  you can tell, use the element (F/P or I/L) and set job to null but copy the visible text into job_text. Do not pick a different job
   that merely looks similar; Cleric and Priest, Page and White Knight, Hunter and Ranger are different jobs.
 - fame: the number in the FAME row (it can be negative, e.g. -7)
 Ignore the leaf icon and anything else. Use null for anything you cannot read clearly. Do not guess."""
@@ -74,7 +77,7 @@ def read_panel(panel_bgr: np.ndarray, api_key: str, model: str = "gemini-2.5-fla
     job = None
     for k in ("job", "job_text"):
         if isinstance(d.get(k), str):
-            job = match_job(d[k])
+            job = match_job(d[k], level)
             if job:
                 break
     return {"name": name if name and NAME_RE.match(name) else None, "level": level, "job": job, "fame": fame,

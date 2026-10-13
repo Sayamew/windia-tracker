@@ -243,9 +243,14 @@ _SIMPLE.update({
 })
 
 
-def match_job(text: str) -> str | None:
+WIZARD_MIN_LEVEL_3RD = 70  # 3rd job (Mage) starts here; 2nd job (Wizard) is below it
+
+
+def match_job(text: str, level: int | None = None) -> str | None:
     """Maps whatever the JOB row (or a model) says to one of our job names, or None.
-    Handles variants like 'F/P Wizard', 'Fire/Poison Mage', 'Crossbow man', 'White-Knight'."""
+    Handles variants ('F/P Wizard', 'Fire/Poison Mage', 'Crossbow man') and TRUNCATED text: the info
+    window cuts long names off ('I/L Mag', 'F/P Wiz', 'Ice/Lightn', 'Crossbowma', 'Dragon Kni'). When the
+    text shows the element but not whether it is a Wizard or a Mage, the character's level decides."""
     raw = text.strip()
     if not raw:
         return None
@@ -253,16 +258,42 @@ def match_job(text: str) -> str | None:
     letters = _LETTERS.sub("", low)
     if not letters or "archmage" in letters or "bishop" in letters:
         return None  # 4th job isn't tracked yet
-    if "wizard" in letters or "mage" in letters:
-        tier = "Wizard" if "wizard" in letters else "Mage"
-        tokens = set(re.split(r"[^a-z]+", low)) - {""}
-        if tokens & {"f", "p", "fp", "fire", "poison"} or "fire" in letters or "poison" in letters:
-            return f"{tier} (Fire/Poison)"
-        if tokens & {"i", "l", "il", "ice", "lightning"} or "ice" in letters or "lightning" in letters:
-            return f"{tier} (Ice/Lightning)"
-        return None
+    tokens = [t for t in re.split(r"[^a-z]+", low) if t]
+
+    # ---- Fire/Poison and Ice/Lightning wizards and mages (the long, often cut-off names)
+    fp_words = ("fire", "poison")
+    il_words = ("ice", "lightning")
+    is_fp = any(t in ("f", "p", "fp") for t in tokens) or any(len(t) >= 3 and w.startswith(t) for t in tokens for w in fp_words)
+    is_il = any(t in ("i", "l", "il") for t in tokens) or any(len(t) >= 3 and w.startswith(t) for t in tokens for w in il_words)
+    if is_fp != is_il or (is_fp and is_il):
+        has_class_word = any(
+            (len(t) >= 2 and ("wizard".startswith(t) or "mage".startswith(t) or t in ("wizard", "mage")))
+            for t in tokens
+        ) or "wizard" in letters or "mage" in letters
+        element_only = all(t in ("f", "p", "fp", "i", "l", "il") or any(len(t) >= 3 and w.startswith(t) for w in fp_words + il_words)
+                           for t in tokens)
+        if has_class_word or element_only:
+            if is_fp and is_il:  # ambiguous 'i/l' vs 'f/p' read: give up rather than guess
+                return None
+            tier = None
+            last = tokens[-1] if tokens else ""
+            if "wizard" in letters or ("wizard".startswith(last) and last[:1] == "w"):
+                tier = "Wizard"
+            elif "mage" in letters or ("mage".startswith(last) and last[:1] == "m" and last != "m" or last == "ma"):
+                tier = "Mage"
+            if tier is None:  # cut off before the class word: use the level
+                if level is None:
+                    return None
+                tier = "Mage" if level >= WIZARD_MIN_LEVEL_3RD else "Wizard"
+            return f"{tier} ({'Fire/Poison' if is_fp else 'Ice/Lightning'})"
+
     if letters in _SIMPLE:
         return _SIMPLE[letters]
+    # truncated plain jobs: a unique prefix of a job name ('Crossbowma', 'Dragon Kni', 'Chief Band')
+    if len(letters) >= 4:
+        pref = {v for k, v in _SIMPLE.items() if k.startswith(letters)}
+        if len(pref) == 1:
+            return next(iter(pref))
     scored = sorted(((difflib.SequenceMatcher(None, letters, k).ratio(), v) for k, v in _SIMPLE.items()), reverse=True)
     best = scored[0]
     rival = next((sc for sc, v in scored if v != best[1]), 0.0)

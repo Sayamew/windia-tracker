@@ -234,7 +234,8 @@ def read_info_window(frame: np.ndarray, ocr: OCR) -> InfoReading | None:
     level = _majority([parse_level(t) for t, _ in level_reads])
     level_conf = max((c for _t, c in level_reads), default=0.0)
 
-    job = _majority([match_job(t) for t, _ in reads("job")])
+    job_reads = [t for t, _ in reads("job")]
+    job = _majority([match_job(t, level) for t in job_reads])
     fame = _majority([parse_fame(t) for t, _ in reads("fame")])
 
     return InfoReading(
