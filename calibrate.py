@@ -20,8 +20,9 @@ import cv2
 from maplescan import infowindow
 from maplescan.config import Config, app_dir
 from maplescan.screen import Screen, enable_dpi_awareness
+from maplescan import gemini
 from maplescan.inspector import Inspector
-from maplescan.vision import OCR, read_name_tags
+from maplescan.vision import OCR, TagCache, read_name_tags
 
 
 def main() -> None:
@@ -60,13 +61,15 @@ def main() -> None:
         missing = [k for k in ("name", "level", "job", "fame") if getattr(reading, k) is None]
         if missing:
             print(f"\nCould not read consistently: {', '.join(missing)}. "
-                  + ("Gemini will be used as a fallback while scanning." if cfg.get("gemini_api_key")
+                  + ("Gemini is on, so it will read these while scanning." if cfg.get("gemini_api_key")
                      else "Set gemini_api_key in config.json to let Gemini cover these."))
         print("\nWrote debug_info.png and info_sprite.png")
         return
 
     ocr = OCR()
-    tags = read_name_tags(frame, ocr, cfg)
+    key = cfg.get("gemini_api_key")
+    namer = (lambda crops: gemini.read_names(crops, key, cfg.get("gemini_model", "gemini-2.5-flash"))) if key else None
+    tags = read_name_tags(frame, ocr, cfg, namer, TagCache())
     scale = frame.shape[0] / 1080
     for t in tags:
         cv2.rectangle(out, (t.x, t.y), (t.x + t.w, t.y + t.h), (0, 255, 0), 1)

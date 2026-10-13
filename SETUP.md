@@ -18,7 +18,7 @@ Run **MapleSetup.exe** and fill in:
 - Ingest API key: the `ingest_api_key` from the website's `app/config.php`
 - Game window title: `MapleStory` unless your window title differs
 - Your bot character's name (the bot ignores itself)
-- Gemini key (optional): backup reader if the text reader is unsure
+- Gemini key: **recommended**. Gemini reads each player name box and the Character Info window; without it the local reader often drops letters
 
 Press **Test connection**, then **Save**.
 
@@ -36,5 +36,6 @@ Press **Test connection**, then **Save**.
 ## Notes
 - Pets and NPCs get tried once or twice, then ignored for a while (30 s, 1 min, 2 min ... up to 30 min).
 - Fame and sprite come from the Character Info window, whatever the player's look is.
+- With a Gemini key, every name tag is cropped and read by Gemini 2.5 Flash (one request per scan, unchanged tags are remembered for 10 minutes). Without a key it falls back to the weaker local reader.
 - A value the bot can't read reliably is dropped, never guessed.
 - If clicks do nothing in game, run the exe as administrator.

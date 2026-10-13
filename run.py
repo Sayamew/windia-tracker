@@ -16,15 +16,16 @@ from maplescan.config import Config, app_dir
 from maplescan.inspector import Inspector
 from maplescan.screen import Screen, enable_dpi_awareness
 from maplescan.uploader import Uploader
-from maplescan.vision import OCR, crop_avatar, norm_name, read_name_tags
+from maplescan import gemini
+from maplescan.vision import OCR, TagCache, crop_avatar, norm_name, read_name_tags
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("scanner")
 
 
-def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, float]) -> None:
+def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, float], namer=None, cache=None) -> None:
     frame = screen.grab()
-    tags = read_name_tags(frame, ocr, cfg)
+    tags = read_name_tags(frame, ocr, cfg, namer, cache)
     now = time.time()
     entries: list[dict] = []
     inspected = 0
@@ -84,6 +85,13 @@ def main() -> None:
     inspector = Inspector(screen, ocr, cfg)
     uploader = Uploader(cfg["api_url"], cfg["api_key"], cfg["world"])
 
+    key = cfg.get("gemini_api_key")
+    model = cfg.get("gemini_model", "gemini-2.5-flash")
+    namer = (lambda crops: gemini.read_names(crops, key, model)) if key else None
+    cache = TagCache()
+    if not namer:
+        log.warning("No Gemini key set: names are read by the local reader only, which often drops letters.")
+
     scanning = threading.Event()
     last_inspected: dict[str, float] = {}
 
@@ -120,7 +128,7 @@ def main() -> None:
                 time.sleep(0.2)
                 continue
             try:
-                scan_once(screen, ocr, inspector, uploader, cfg, last_inspected)
+                scan_once(screen, ocr, inspector, uploader, cfg, last_inspected, namer, cache)
             except SystemExit:
                 raise
             except Exception:

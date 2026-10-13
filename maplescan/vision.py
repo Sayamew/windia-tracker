@@ -113,30 +113,96 @@ def _tag_like(frame: np.ndarray, x: int, y: int, w: int, h: int) -> bool:
     return 0.05 <= bright <= 0.50 and dark >= 0.05
 
 
-def read_name_tags(frame: np.ndarray, ocr: OCR, cfg) -> list[NameTag]:
-    """Finds every player name on screen: reads all text, then keeps white, single-word, name-shaped
-    text outside the UI. Pets and NPCs are mostly filtered out here (spaces, yellow text); any that get
-    through are dropped later when double-clicking them doesn't open a player's window."""
+def _signature(crop: np.ndarray) -> np.ndarray:
+    """Background-independent fingerprint of a tag's text, so an unchanged tag isn't sent to Gemini twice."""
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    mask = (gray > 190).astype(np.float32)
+    return cv2.resize(mask, (24, 8), interpolation=cv2.INTER_AREA)
+
+
+class TagCache:
+    """Remembers what Gemini read for a given tag image for a while (default 10 minutes)."""
+
+    def __init__(self, ttl: float = 600.0) -> None:
+        self.ttl = ttl
+        self.items: list[tuple[np.ndarray, str | None, float]] = []
+
+    def get(self, sig: np.ndarray):
+        import time
+        now = time.time()
+        self.items = [i for i in self.items if now - i[2] < self.ttl]
+        for s, val, _t in self.items:
+            if float(np.abs(s - sig).mean()) < 0.06:
+                return True, val
+        return False, None
+
+    def put(self, sig: np.ndarray, val: str | None) -> None:
+        import time
+        self.items.append((sig, val, time.time()))
+        self.items = self.items[-300:]
+
+
+def read_name_tags(frame: np.ndarray, ocr: OCR, cfg, namer=None, cache: "TagCache | None" = None) -> list[NameTag]:
+    """Finds every player name on screen. The local OCR locates the text boxes; when a Gemini `namer` is
+    given, each box is cropped and Gemini reads the actual name (the local reader often drops letters).
+    Pets and NPCs are mostly filtered out here (spaces, yellow text); any that get through are dropped
+    later when double-clicking them doesn't open a player's window."""
     H = frame.shape[0]
     s = H / 1080.0
     own = norm_name(str(cfg.get("own_character", "")))
     zones = cfg.get("ignore_zones", [])
     lines = ocr.detect(_blank_zones(frame, zones) if zones else frame)
 
-    tags: list[NameTag] = []
+    cands: list[tuple[tuple[int, int, int, int], str, float]] = []
     for (x, y, w, h), text, conf in lines:
+        if not (7 * s <= h <= 28 * s and w >= 10 * s and w <= 190 * s):
+            continue
         raw = text.strip()
-        if " " in raw or not NAME_RE.match(raw):
+        if namer is None:
+            if " " in raw or not NAME_RE.match(raw) or len(raw) < 3 or conf < cfg["min_name_confidence"]:
+                continue
+        if _is_yellow(frame, x, y, w, h) or not _tag_like(frame, x, y, w, h):
             continue
-        if not (7 * s <= h <= 28 * s and w >= 8 * s):
+        cands.append(((x, y, w, h), raw, conf))
+
+    names: list[str | None] = []
+    if namer is not None:
+        cands = cands[: int(cfg.get("max_tag_crops", 30))]
+        crops, sigs, todo = [], [], []
+        resolved: list = [None] * len(cands)
+        have = [False] * len(cands)
+        for i, ((x, y, w, h), _t, _c) in enumerate(cands):
+            crop = frame[max(0, y - 2):y + h + 2, max(0, x - 3):x + w + 3]
+            sig = _signature(crop)
+            sigs.append(sig)
+            hit, val = cache.get(sig) if cache else (False, None)
+            if hit:
+                resolved[i], have[i] = val, True
+            else:
+                todo.append(i)
+                crops.append(crop)
+        if crops:
+            got = namer(crops)
+            for j, i in enumerate(todo):
+                if got is not None:
+                    resolved[i] = got[j]
+                    if cache:
+                        cache.put(sigs[i], got[j])
+                else:  # Gemini unavailable: fall back to the local reading
+                    raw = cands[i][1]
+                    resolved[i] = raw if NAME_RE.match(raw) else None
+        names = resolved
+    else:
+        names = [raw for _b, raw, _c in cands]
+
+    tags: list[NameTag] = []
+    for ((x, y, w, h), _t, conf), name in zip(cands, names):
+        if not name:
             continue
-        if conf < cfg["min_name_confidence"]:
+        name = name.strip()
+        if " " in name or not NAME_RE.match(name) or len(name) < 3 or norm_name(name) == own:
             continue
-        if norm_name(raw) == own:
-            continue
-        if len(raw) < 3 or _is_yellow(frame, x, y, w, h) or not _tag_like(frame, x, y, w, h):
-            continue
-        tags.append(NameTag(raw, conf, x, y, w, h))
+        tags.append(NameTag(name, 1.0 if namer is not None else conf, x, y, w, h))
 
     best: dict[str, NameTag] = {}
     for t in tags:

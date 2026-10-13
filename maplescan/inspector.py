@@ -60,18 +60,17 @@ class Inspector:
         if reading is None:
             return None
         name, level, job, fame = reading.name, reading.level, reading.job, reading.fame
-        complete = bool(name) and level is not None and job is not None and fame is not None
         key = self.cfg.get("gemini_api_key")
-        if not complete and key:
+        if key:
             panel = infowindow.panel_crop(frame)
             if panel is not None:
                 g = gemini.read_panel(panel, key, self.cfg.get("gemini_model", "gemini-2.5-flash"))
                 if g:
-                    # Trust Gemini only where the local OCR had no consistent answer.
-                    name = name or g["name"]
-                    level = level if level is not None else g["level"]
-                    job = job or g["job"]
-                    fame = fame if fame is not None else g["fame"]
+                    # Gemini is the primary reader; the local OCR only fills what Gemini couldn't read.
+                    name = g["name"] or name
+                    level = g["level"] if g["level"] is not None else level
+                    job = g["job"] or job
+                    fame = g["fame"] if g["fame"] is not None else fame
         if not name or not NAME_RE.match(name) or level is None:
             return None
         return Inspection(name=name, level=level, job=job, fame=fame, avatar_png=reading.avatar_png)
