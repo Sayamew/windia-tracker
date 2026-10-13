@@ -5,3 +5,5 @@ dist/
 __pycache__/
 debug_*.png
 info_sprite.png
+names.json
+debug/

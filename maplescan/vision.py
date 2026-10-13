@@ -233,12 +233,42 @@ def parse_level(text: str) -> int | None:
     return level if 1 <= level <= 300 else None
 
 
+_LETTERS = re.compile(r"[^a-z]")
+_SIMPLE = {_LETTERS.sub("", j.lower()): j for j in KNOWN_JOBS if "(" not in j}
+_SIMPLE.update({
+    "crossbowmen": "Crossbowman", "crossbow": "Crossbowman", "xbowman": "Crossbowman",
+    "dk": "Dragon Knight", "wk": "White Knight", "dragonknights": "Dragon Knight",
+    "gunslingers": "Gunslinger", "bowmen": "Bowman", "pages": "Page", "clerics": "Cleric",
+    "fighters": "Fighter", "spearmen": "Spearman", "magicians": "Magician", "pirates": "Pirate",
+})
+
+
 def match_job(text: str) -> str | None:
-    cleaned = text.strip()
-    if not cleaned:
+    """Maps whatever the JOB row (or a model) says to one of our job names, or None.
+    Handles variants like 'F/P Wizard', 'Fire/Poison Mage', 'Crossbow man', 'White-Knight'."""
+    raw = text.strip()
+    if not raw:
         return None
-    hit = difflib.get_close_matches(cleaned, KNOWN_JOBS, n=1, cutoff=0.7)
-    return hit[0] if hit else None
+    low = raw.lower()
+    letters = _LETTERS.sub("", low)
+    if not letters or "archmage" in letters or "bishop" in letters:
+        return None  # 4th job isn't tracked yet
+    if "wizard" in letters or "mage" in letters:
+        tier = "Wizard" if "wizard" in letters else "Mage"
+        tokens = set(re.split(r"[^a-z]+", low)) - {""}
+        if tokens & {"f", "p", "fp", "fire", "poison"} or "fire" in letters or "poison" in letters:
+            return f"{tier} (Fire/Poison)"
+        if tokens & {"i", "l", "il", "ice", "lightning"} or "ice" in letters or "lightning" in letters:
+            return f"{tier} (Ice/Lightning)"
+        return None
+    if letters in _SIMPLE:
+        return _SIMPLE[letters]
+    scored = sorted(((difflib.SequenceMatcher(None, letters, k).ratio(), v) for k, v in _SIMPLE.items()), reverse=True)
+    best = scored[0]
+    rival = next((sc for sc, v in scored if v != best[1]), 0.0)
+    if best[0] >= 0.82 and best[0] - rival > 0.08:
+        return best[1]
+    return None
 
 
 def parse_fame(text: str) -> int | None:

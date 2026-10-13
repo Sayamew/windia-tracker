@@ -17,13 +17,14 @@ from maplescan.inspector import Inspector
 from maplescan.screen import Screen, enable_dpi_awareness
 from maplescan.uploader import Uploader
 from maplescan import gemini
+from maplescan.names import NameBook
 from maplescan.vision import OCR, TagCache, crop_avatar, norm_name, read_name_tags
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("scanner")
 
 
-def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, float], namer=None, cache=None) -> None:
+def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, float], namer=None, cache=None, book=None) -> None:
     frame = screen.grab()
     tags = read_name_tags(frame, ocr, cfg, namer, cache)
     now = time.time()
@@ -47,12 +48,13 @@ def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, f
             if result:
                 # Save under the name shown in the info window (large font, more reliable than the tag).
                 avatar = result.avatar_png or crop_avatar(frame, tag, cfg["avatar_box"])
-                entries.append(uploader.make_entry(result.name, result.level, result.job, avatar, result.fame))
+                final = book.vote(result.name) if book else result.name
+                entries.append(uploader.make_entry(final, result.level, result.job, avatar, result.fame))
                 done = time.time()
                 last_inspected[norm_name(result.name)] = done
                 last_inspected[key] = done
                 last_inspected.pop("failn:" + key, None)
-                log.info("read %s: level %s, %s, fame %s", result.name, result.level, result.job, result.fame)
+                log.info("read %s: level %s, %s, fame %s", final, result.level, result.job, result.fame)
                 continue
             last_inspected["fail:" + key] = time.time()
             last_inspected["failn:" + key] = fails + 1
@@ -89,6 +91,7 @@ def main() -> None:
     model = cfg.get("gemini_model", "gemini-2.5-flash")
     namer = (lambda crops: gemini.read_names(crops, key, model)) if key else None
     cache = TagCache()
+    book = NameBook(app_dir() / "names.json")
     if not namer:
         log.warning("No Gemini key set: names are read by the local reader only, which often drops letters.")
 
@@ -128,7 +131,7 @@ def main() -> None:
                 time.sleep(0.2)
                 continue
             try:
-                scan_once(screen, ocr, inspector, uploader, cfg, last_inspected, namer, cache)
+                scan_once(screen, ocr, inspector, uploader, cfg, last_inspected, namer, cache, book)
             except SystemExit:
                 raise
             except Exception:

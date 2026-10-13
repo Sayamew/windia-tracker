@@ -260,3 +260,13 @@ def panel_crop(frame: np.ndarray) -> np.ndarray | None:
     y1 = r["name"][3] + 4
     crop = _clip(frame, x0, y0, x1, y1)
     return crop if crop.size else None
+
+
+def plate_crop(frame: np.ndarray) -> np.ndarray | None:
+    """Just the grey name plate (name text), for a larger, clearer second look."""
+    L = locate(frame)
+    if L is None:
+        return None
+    x0, y0, x1, y1 = regions(frame, L)["name"]
+    raw = _clip(frame, x0, y0, x1, y1)
+    return raw if raw.size else None

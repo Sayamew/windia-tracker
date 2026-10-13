@@ -60,20 +60,40 @@ class Inspector:
         if reading is None:
             return None
         name, level, job, fame = reading.name, reading.level, reading.job, reading.fame
+        local = (reading.name, reading.level, reading.job, reading.fame)
+        job_text = None
         key = self.cfg.get("gemini_api_key")
         if key:
             panel = infowindow.panel_crop(frame)
             if panel is not None:
-                g = gemini.read_panel(panel, key, self.cfg.get("gemini_model", "gemini-2.5-flash"))
+                g = gemini.read_panel(panel, key, self.cfg.get("gemini_model", "gemini-2.5-flash"),
+                                      infowindow.plate_crop(frame))
                 if g:
                     # Gemini is the primary reader; the local OCR only fills what Gemini couldn't read.
                     name = g["name"] or name
                     level = g["level"] if g["level"] is not None else level
                     job = g["job"] or job
                     fame = g["fame"] if g["fame"] is not None else fame
+                    job_text = g.get("job_text")
         if not name or not NAME_RE.match(name) or level is None:
             return None
+        if job is None:
+            log.warning("job not recognised for %s (row said %r, local OCR %r): saved without a class", name, job_text, local[2])
+            self._debug_dump(frame, name)
         return Inspection(name=name, level=level, job=job, fame=fame, avatar_png=reading.avatar_png)
+
+    def _debug_dump(self, frame, name: str) -> None:
+        """Keep a picture of anything we couldn't classify so it can be checked/fixed later."""
+        try:
+            import cv2
+            from .config import app_dir
+            d = app_dir() / "debug"
+            d.mkdir(exist_ok=True)
+            panel = infowindow.panel_crop(frame)
+            if panel is not None and len(list(d.glob("*.png"))) < 200:
+                cv2.imwrite(str(d / f"{int(time.time())}_{name}.png"), panel)
+        except Exception:
+            pass
 
     # -- main entry ------------------------------------------------------------------------------
     def inspect(self, tag: NameTag) -> Inspection | None:
