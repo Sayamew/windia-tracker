@@ -6,6 +6,7 @@ job from their info window, and uploads name, level, job and a sprite crop to th
 """
 from __future__ import annotations
 
+import difflib
 import logging
 import os
 import random
@@ -30,19 +31,23 @@ def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, f
     now = time.time()
     entries: list[dict] = []
     inspected = 0
-    base_fail = float(cfg.get("fail_retry_seconds", 30))
 
-    for tag in sorted(tags, key=lambda t: last_inspected.get(norm_name(t.name), 0)):
+    cooldown = max(3600.0, float(cfg["min_reinspect_seconds"]))  # default 1 hour, for successful AND failed clicks
+
+    def last_click(key: str) -> float:
+        """Most recent click on this player (a slightly misread spelling counts as the same player)."""
+        best = last_inspected.get(key, 0)
+        for k, v in last_inspected.items():
+            if v > best and abs(len(k) - len(key)) <= 1 and difflib.SequenceMatcher(None, k, key).ratio() >= 0.85:
+                best = v
+        return best
+
+    # Never-clicked players first, then whoever was clicked longest ago. Anyone clicked within the
+    # cooldown is skipped, so each cycle goes for a different person (or clicks nobody).
+    for tag in sorted(tags, key=lambda t: last_click(norm_name(t.name))):
         key = norm_name(tag.name)
-        # Cooldown: a player we already imported successfully is skipped for min_reinspect_seconds
-        # (default 10 minutes) even if they stay nearby.
-        stale = now - last_inspected.get(key, 0) >= cfg["min_reinspect_seconds"]
-        # A failed attempt (pets and NPCs never open a player window) backs off: 30 s, 1 min, 2 min ... up to ~30 min.
-        fails = int(last_inspected.get("failn:" + key, 0))
-        wait = min(base_fail * (2 ** fails), 1800)
-        recently_failed = now - last_inspected.get("fail:" + key, 0) < wait
-
-        if stale and not recently_failed and inspected < cfg["max_inspect_per_cycle"]:
+        if now - last_click(key) >= cooldown and inspected < cfg["max_inspect_per_cycle"]:
+            last_inspected[key] = time.time()  # counts as clicked even if the window doesn't open
             result = inspector.inspect(tag)
             inspected += 1
             if result:
@@ -50,14 +55,9 @@ def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, f
                 avatar = result.avatar_png or crop_avatar(frame, tag, cfg["avatar_box"])
                 final = book.vote(result.name) if book else result.name
                 entries.append(uploader.make_entry(final, result.level, result.job, avatar, result.fame))
-                done = time.time()
-                last_inspected[norm_name(result.name)] = done
-                last_inspected[key] = done
-                last_inspected.pop("failn:" + key, None)
+                last_inspected[norm_name(result.name)] = time.time()
                 log.info("read %s: level %s, %s, fame %s", final, result.level, result.job, result.fame)
                 continue
-            last_inspected["fail:" + key] = time.time()
-            last_inspected["failn:" + key] = fails + 1
             log.info("could not open a player window for '%s' (pet/NPC or misread name?)", tag.name)
         # Seen but not (re)inspected: heartbeat so "last checked" stays fresh.
         entries.append(uploader.make_entry(tag.name))
@@ -67,14 +67,6 @@ def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, f
     res = uploader.flush()
     log.info("saw %d players, inspected %d%s", len(tags), inspected,
              f", server: {res['upserted']} updated / {res['touched']} touched" if res else "")
-    if res:
-        # Names the server doesn't know, or only knows from unverified screenshot uploads,
-        # get inspected next cycle so the scanner can verify them.
-        for name in res.get("unknown", []) + res.get("unverified", []):
-            last_inspected.pop(norm_name(name), None)
-        # A rejected entry was not imported, so it gets no cooldown.
-        for err in res.get("errors", []):
-            last_inspected.pop(norm_name(str(err.get("name", ""))), None)
 
 
 def main() -> None:

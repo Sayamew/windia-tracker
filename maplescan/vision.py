@@ -88,17 +88,52 @@ def _blank_zones(frame: np.ndarray, zones: list[list[float]]) -> np.ndarray:
 
 
 def _is_yellow(frame: np.ndarray, x: int, y: int, w: int, h: int) -> bool:
-    """NPC and shop names are drawn in yellow; player names are white."""
-    roi = frame[max(0, y):y + h, max(0, x):x + w].astype(np.int16)
+    """NPC and shop names are drawn in yellow (sometimes on a brown wooden sign); player names are white."""
+    pad = 3
+    roi = frame[max(0, y - pad):y + h + pad, max(0, x - pad):x + w + pad]
     if roi.size == 0:
         return False
-    bright = roi[roi.min(axis=2) > 150]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    hue, sat, val = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    yellow = int(((hue >= 18) & (hue <= 38) & (sat > 110) & (val > 170)).sum())
+    white = int(((sat < 60) & (val > 210)).sum())
+    if yellow >= 6 and yellow >= 0.6 * max(white, 1):
+        return True
+    # wooden sign behind the text: brown backing plus some yellow lettering
+    brown = float(((hue >= 6) & (hue <= 22) & (sat > 90) & (val > 70) & (val < 215)).mean())
+    if brown > 0.35 and yellow >= 4:
+        return True
+    r = roi.astype(np.int16)
+    bright = r[r.min(axis=2) > 150]
     if len(bright) < 3:
-        bright = roi.reshape(-1, 3)[roi.reshape(-1, 3).max(axis=1) > 170]
+        flat = r.reshape(-1, 3)
+        bright = flat[flat.max(axis=1) > 170]
     if len(bright) < 3:
         return False
-    b, g, r = bright[:, 0].mean(), bright[:, 1].mean(), bright[:, 2].mean()
-    return (r + g) / 2 - b > 55
+    return (bright[:, 2].mean() + bright[:, 1].mean()) / 2 - bright[:, 0].mean() > 55
+
+
+def _light_share(frame: np.ndarray, x0: int, y0: int, x1: int, y1: int) -> float:
+    roi = frame[max(0, y0):max(0, y1), max(0, x0):max(0, x1)]
+    if roi.size == 0:
+        return 0.0
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    return float(((hsv[..., 2] > 195) & (hsv[..., 1] < 90)).mean())
+
+
+def _in_game_box(frame: np.ndarray, x: int, y: int, w: int, h: int) -> bool:
+    """Omok / mini-game / shop balloons: a light panel with dark text. Text inside one is dark on light,
+    while a player name is light text on the scene."""
+    pad_x, pad_y = max(10, w // 2), max(8, h)
+    outer = _light_share(frame, x - pad_x, y - pad_y, x + w + pad_x, y + h + pad_y)
+    inner = _light_share(frame, x, y, x + w, y + h)
+    return outer > 0.45 and inner > 0.35
+
+
+def click_blocked(frame: np.ndarray, cx: int, cy: int, s: float = 1.0) -> bool:
+    """True if a click here would hit a light balloon / game box rather than a character."""
+    r = int(22 * s)
+    return _light_share(frame, cx - r, cy - r, cx + r, cy + r) > 0.5
 
 
 def _tag_like(frame: np.ndarray, x: int, y: int, w: int, h: int) -> bool:
@@ -161,7 +196,7 @@ def read_name_tags(frame: np.ndarray, ocr: OCR, cfg, namer=None, cache: "TagCach
         if namer is None:
             if " " in raw or not NAME_RE.match(raw) or len(raw) < 3 or conf < cfg["min_name_confidence"]:
                 continue
-        if _is_yellow(frame, x, y, w, h) or not _tag_like(frame, x, y, w, h):
+        if _is_yellow(frame, x, y, w, h) or _in_game_box(frame, x, y, w, h) or not _tag_like(frame, x, y, w, h):
             continue
         cands.append(((x, y, w, h), raw, conf))
 

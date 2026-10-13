@@ -2,7 +2,7 @@
 
 The bot stands in front of the **Free Market portal in Henesys, Channel 10**. Every 3-8 seconds it finds the players
 on screen, **double-clicks** each one to open their Character Info window, reads name / level / job / fame, copies the
-sprite as the ranking photo, and uploads it. Anyone imported is skipped for 10 minutes.
+sprite as the ranking photo, and uploads it. Anyone imported is skipped for an hour; yellow NPC names and game boxes are ignored.
 
 **F4 = start, F5 = stop.** Automating the game likely breaks Nexon's rules; use an account you can afford to lose.
 

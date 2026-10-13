@@ -8,7 +8,7 @@ import pyautogui
 
 from . import gemini, infowindow
 from .screen import Screen
-from .vision import NAME_RE, OCR, NameTag
+from .vision import NAME_RE, OCR, NameTag, click_blocked
 
 pyautogui.FAILSAFE = True  # slam the mouse into a screen corner to abort
 pyautogui.PAUSE = 0.02
@@ -104,9 +104,13 @@ class Inspector:
         wait = float(self.cfg.get("open_wait_seconds", 0.6))
         try:
             self._close_info()  # start from a clean screen
+            before = self.screen.grab()
+            sc = self.screen.rect.height / 1080
             for dy in offsets:
                 cx = tag.center_x
-                cy = max(0, tag.y + int(dy * self.screen.rect.height / 1080))
+                cy = max(0, tag.y + int(dy * sc))
+                if click_blocked(before, cx, cy, sc):  # a game box / balloon is over this spot
+                    continue
                 pyautogui.moveTo(*self.screen.to_screen(cx, cy), duration=0.08)
                 pyautogui.doubleClick(interval=0.07)
                 time.sleep(wait)

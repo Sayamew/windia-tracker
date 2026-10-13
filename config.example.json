@@ -8,7 +8,7 @@
     3,
     8
   ],
-  "min_reinspect_seconds": 600,
+  "min_reinspect_seconds": 3600,
   "max_inspect_per_cycle": 3,
   "min_name_confidence": 0.8,
   "avatar_box": {
@@ -54,7 +54,7 @@
   "start_hotkey": "f4",
   "stop_hotkey": "f5",
   "fail_retry_seconds": 30,
-  "_comment_location": "Park the bot character in front of the FM portal in Henesys, Channel 10. Players next to it get scanned, then skipped for min_reinspect_seconds (10 min).",
+  "_comment_location": "Park the bot character in front of the FM portal in Henesys, Channel 10. Players next to it get scanned, then skipped for min_reinspect_seconds (1 hour).",
   "gemini_api_key": "",
   "gemini_model": "gemini-2.5-flash",
   "_comment_gemini": "With a key set, Gemini 2.5 Flash reads every name-tag crop and the Character Info panel (local OCR only finds the boxes). Unchanged tags are cached for 10 minutes, so calls stay low.",
