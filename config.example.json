@@ -4,10 +4,7 @@
   "world": "windia",
   "window_title": "MapleStory",
   "own_character": "YourBotCharName",
-  "scan_interval_seconds": [
-    3,
-    8
-  ],
+  "scan_interval_seconds": [1.0, 2.0],
   "min_reinspect_seconds": 3600,
   "max_inspect_per_cycle": 3,
   "min_name_confidence": 0.8,
@@ -53,7 +50,7 @@
   ],
   "start_hotkey": "f4",
   "stop_hotkey": "f5",
-  "fail_retry_seconds": 30,
+  "fail_retry_seconds": 60,
   "_comment_location": "Park the bot character in front of the FM portal in Henesys, Channel 10. Players next to it get scanned, then skipped for min_reinspect_seconds (1 hour).",
   "gemini_api_key": "",
   "gemini_model": "gemini-2.5-flash",

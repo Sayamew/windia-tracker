@@ -136,16 +136,30 @@ def click_blocked(frame: np.ndarray, cx: int, cy: int, s: float = 1.0) -> bool:
     return _light_share(frame, cx - r, cy - r, cx + r, cy + r) > 0.5
 
 
+def _blue_plate(frame: np.ndarray, x: int, y: int, w: int, h: int) -> bool:
+    """The other name-tag style: dark text on a grey plate with a blue border."""
+    pad = max(6, h // 2)
+    roi = frame[max(0, y - pad):y + h + pad, max(0, x - pad):x + w + pad]
+    if roi.size == 0:
+        return False
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    blue = ((hsv[..., 0] >= 92) & (hsv[..., 0] <= 112) & (hsv[..., 1] > 110) & (hsv[..., 2] > 110)).mean()
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    return blue >= 0.03 and float((gray < 80).mean()) >= 0.04
+
+
 def _tag_like(frame: np.ndarray, x: int, y: int, w: int, h: int) -> bool:
-    """A name tag is light text with a dark outline/backing. Rejects speech bubbles (dark text on a mostly
-    white box), clouds and other bright scenery."""
+    """A name tag is light text with a dark outline/backing (or dark text on a blue-bordered grey plate).
+    Rejects speech bubbles (dark text on a mostly white box), clouds and other bright scenery."""
     roi = frame[max(0, y):y + h, max(0, x):x + w]
     if roi.size == 0:
         return False
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     bright = float((gray > 190).mean())
     dark = float((gray < 70).mean())
-    return 0.05 <= bright <= 0.50 and dark >= 0.05
+    if 0.05 <= bright <= 0.50 and dark >= 0.05:
+        return True
+    return _blue_plate(frame, x, y, w, h)
 
 
 def _signature(crop: np.ndarray) -> np.ndarray:

@@ -1,7 +1,7 @@
 """MapleStory Classic World (Windia) scanner.
 
 The character stays where it is. Press F4 to start scanning and F5 to stop. While running, every
-3-8 seconds it reads the name tags of the players on screen, reads each new/stale player's level and
+1-2 seconds it reads the name tags of the players on screen, reads each new/stale player's level and
 job from their info window, and uploads name, level, job and a sprite crop to the ranking site.
 """
 from __future__ import annotations
@@ -25,48 +25,128 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("scanner")
 
 
-def scan_once(screen, ocr, inspector, uploader, cfg, last_inspected: dict[str, float], namer=None, cache=None, book=None) -> None:
+ARRIVAL_WINDOW = 45.0  # seconds a newcomer keeps top priority
+GONE_AFTER = 5.0       # not seen for this long = left the screen (so a return counts as an arrival)
+
+
+class State:
+    """What the scanner remembers: who was clicked when, who failed, who just arrived."""
+
+    def __init__(self, cooldown: float, fail_base: float) -> None:
+        self.cooldown = max(3600.0, cooldown)  # one hour per player
+        self.fail_base = fail_base
+        self.clicked: dict[str, float] = {}      # norm name -> last time we clicked and read them
+        self.fails: dict[str, tuple[float, int]] = {}  # norm name -> (last failed click, count)
+        self.alias: dict[str, str] = {}          # partly hidden tag spelling -> real name
+        self.present: dict[str, list[float]] = {}  # norm name -> [first seen, last seen]
+
+    @staticmethod
+    def _same(a: str, b: str) -> bool:
+        if a == b:
+            return True
+        short, long_ = sorted((a, b), key=len)
+        if len(short) >= 4 and long_.startswith(short):  # name cut off by another player / sprite
+            return True
+        return abs(len(a) - len(b)) <= 1 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.85
+
+    def last_click(self, key: str) -> float:
+        key = self.alias.get(key, key)
+        best = 0.0
+        for k, v in self.clicked.items():
+            if v > best and self._same(k, key):
+                best = v
+        return best
+
+    def on_cooldown(self, key: str, now: float) -> bool:
+        return now - self.last_click(key) < self.cooldown
+
+    def fail_wait(self, key: str, now: float) -> bool:
+        t, n = self.fails.get(key, (0.0, 0))
+        return n > 0 and now - t < min(self.fail_base * (2 ** (n - 1)), self.cooldown)
+
+    def mark_clicked(self, key: str, real: str, now: float) -> None:
+        self.clicked[real] = now
+        self.clicked[key] = now
+        if key != real:
+            self.alias[key] = real
+        self.fails.pop(key, None)
+
+    def mark_failed(self, key: str, now: float) -> None:
+        self.fails[key] = (now, self.fails.get(key, (0.0, 0))[1] + 1)
+
+    def update_presence(self, keys: set[str], now: float) -> set[str]:
+        """Returns the keys that just came into view."""
+        arrived = set()
+        for k in keys:
+            rec = self.present.get(k)
+            if rec is None or now - rec[1] > GONE_AFTER:
+                self.present[k] = [now, now]
+                arrived.add(k)
+            else:
+                rec[1] = now
+        for k in [k for k, r in self.present.items() if now - r[1] > 120]:
+            del self.present[k]
+        return arrived
+
+
+def scan_once(screen, ocr, inspector, uploader, cfg, state: State, namer=None, cache=None, book=None) -> int:
+    """One look at the screen. Returns how many eligible players are still waiting, so the caller can
+    come back quickly instead of sleeping the full interval."""
     frame = screen.grab()
     tags = read_name_tags(frame, ocr, cfg, namer, cache)
     now = time.time()
     entries: list[dict] = []
     inspected = 0
+    state.update_presence({norm_name(t.name) for t in tags}, now)
 
-    cooldown = max(3600.0, float(cfg["min_reinspect_seconds"]))  # default 1 hour, for successful AND failed clicks
+    def priority(t) -> tuple:
+        key = norm_name(t.name)
+        first = state.present.get(key, [now, now])[0]
+        last = state.last_click(key)
+        newcomer = last == 0 and now - first <= ARRIVAL_WINDOW
+        # 0: someone who just walked in (newest first), 1: anyone never clicked, 2: oldest click first
+        return (0 if newcomer else 1 if last == 0 else 2, -first if last == 0 else last)
 
-    def last_click(key: str) -> float:
-        """Most recent click on this player (a slightly misread spelling counts as the same player)."""
-        best = last_inspected.get(key, 0)
-        for k, v in last_inspected.items():
-            if v > best and abs(len(k) - len(key)) <= 1 and difflib.SequenceMatcher(None, k, key).ratio() >= 0.85:
-                best = v
-        return best
+    def eligible(t) -> bool:
+        key = norm_name(t.name)
+        return not state.on_cooldown(key, now) and not state.fail_wait(key, now)
 
-    # Never-clicked players first, then whoever was clicked longest ago. Anyone clicked within the
-    # cooldown is skipped, so each cycle goes for a different person (or clicks nobody).
-    for tag in sorted(tags, key=lambda t: last_click(norm_name(t.name))):
+    queue = [t for t in sorted(tags, key=priority) if eligible(t)]
+    done_keys: set[str] = set()
+    for tag in queue:
         key = norm_name(tag.name)
-        if now - last_click(key) >= cooldown and inspected < cfg["max_inspect_per_cycle"]:
-            last_inspected[key] = time.time()  # counts as clicked even if the window doesn't open
-            result = inspector.inspect(tag)
-            inspected += 1
-            if result:
-                # Save under the name shown in the info window (large font, more reliable than the tag).
-                avatar = result.avatar_png or crop_avatar(frame, tag, cfg["avatar_box"])
-                final = book.vote(result.name) if book else result.name
-                entries.append(uploader.make_entry(final, result.level, result.job, avatar, result.fame))
-                last_inspected[norm_name(result.name)] = time.time()
-                log.info("read %s: level %s, %s, fame %s", final, result.level, result.job, result.fame)
-                continue
-            log.info("could not open a player window for '%s' (pet/NPC or misread name?)", tag.name)
-        # Seen but not (re)inspected: heartbeat so "last checked" stays fresh.
-        entries.append(uploader.make_entry(tag.name))
+        if inspected >= cfg["max_inspect_per_cycle"]:
+            break
+        # the same person may have been clicked a moment ago through a neighbouring tag
+        if key in done_keys or state.on_cooldown(key, time.time()):
+            continue
+        result = inspector.inspect(tag, skip=lambda n: state.on_cooldown(norm_name(n), time.time()))
+        inspected += 1
+        t_now = time.time()
+        if result:
+            # Save under the name shown in the info window (large font, more reliable than the tag).
+            avatar = result.avatar_png or crop_avatar(frame, tag, cfg["avatar_box"])
+            final = book.vote(result.name) if book else result.name
+            entries.append(uploader.make_entry(final, result.level, result.job, avatar, result.fame))
+            state.mark_clicked(key, norm_name(result.name), t_now)
+            done_keys.add(key)
+            log.info("read %s: level %s, %s, fame %s", final, result.level, result.job, result.fame)
+        else:
+            state.mark_failed(key, t_now)
+            log.info("could not read a player window for '%s' (NPC, pet, hidden or misread name)", tag.name)
 
+    # Everyone seen but not inspected this round: heartbeat so "last checked" stays fresh.
+    for t in tags:
+        if norm_name(t.name) not in done_keys:
+            entries.append(uploader.make_entry(t.name))
     if entries:
         uploader.queue(entries)
     res = uploader.flush()
-    log.info("saw %d players, inspected %d%s", len(tags), inspected,
+    waiting = sum(1 for t in queue if not state.on_cooldown(norm_name(t.name), time.time())
+                  and norm_name(t.name) not in done_keys and not state.fail_wait(norm_name(t.name), time.time()))
+    log.info("saw %d players, inspected %d, %d waiting%s", len(tags), inspected, waiting,
              f", server: {res['upserted']} updated / {res['touched']} touched" if res else "")
+    return waiting
 
 
 def main() -> None:
@@ -88,7 +168,7 @@ def main() -> None:
         log.warning("No Gemini key set: names are read by the local reader only, which often drops letters.")
 
     scanning = threading.Event()
-    last_inspected: dict[str, float] = {}
+    state = State(float(cfg["min_reinspect_seconds"]), float(cfg.get("fail_retry_seconds", 60)))
 
     start_key = cfg.get("start_hotkey", "f4")
     stop_key = cfg.get("stop_hotkey", "f5")
@@ -117,19 +197,22 @@ def main() -> None:
              start_key.upper(), stop_key.upper())
 
     lo, hi = cfg["scan_interval_seconds"]
+    lo, hi = min(lo, 1.0), min(hi, 2.5)  # older configs had 3-8 s; newcomers should be caught fast
     try:
         while True:
             if not scanning.is_set():
                 time.sleep(0.2)
                 continue
             try:
-                scan_once(screen, ocr, inspector, uploader, cfg, last_inspected, namer, cache, book)
+                waiting = scan_once(screen, ocr, inspector, uploader, cfg, state, namer, cache, book)
             except SystemExit:
                 raise
             except Exception:
                 log.exception("scan cycle failed")
-            # Sleep in small steps so F5 takes effect immediately.
-            deadline = time.time() + random.uniform(lo, hi)
+                waiting = 0
+            # Someone still waiting: look again almost at once (a short human-like pause);
+            # otherwise a quick re-check so newcomers are caught fast. F5 takes effect within 0.1 s.
+            deadline = time.time() + (random.uniform(0.4, 0.9) if waiting else random.uniform(lo, hi))
             while time.time() < deadline and scanning.is_set():
                 time.sleep(0.1)
     except KeyboardInterrupt:

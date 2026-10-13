@@ -96,7 +96,7 @@ class Inspector:
             pass
 
     # -- main entry ------------------------------------------------------------------------------
-    def inspect(self, tag: NameTag) -> Inspection | None:
+    def inspect(self, tag: NameTag, skip=None) -> Inspection | None:
         """Returns the reading for the player whose window opened, or None if no player window opened.
         (If a neighbouring player was clicked instead, that player's reading is returned; the caller
         saves it under the name in the window.)"""
@@ -116,6 +116,11 @@ class Inspector:
                 time.sleep(wait)
                 result = self._read_open_window(self.screen.grab())
                 if result is not None:
+                    if skip and skip(result.name):
+                        # A neighbouring player we already did this hour was hit (overlapping sprites): try another spot.
+                        log.info("hit %s again, trying another spot on %s", result.name, tag.name)
+                        self._close_info()
+                        continue
                     return result
                 self._close_info()  # something opened but unreadable, or nothing: reset and retry
             return None
