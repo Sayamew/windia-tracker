@@ -1,0 +1,7 @@
+config.json
+build/
+dist/
+*.spec
+__pycache__/
+debug_*.png
+info_sprite.png

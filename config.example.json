@@ -1,0 +1,61 @@
+{
+  "api_url": "https://ranking.sudocat.dev/api/ingest",
+  "api_key": "PASTE_INGEST_API_KEY_HERE",
+  "world": "windia",
+  "window_title": "MapleStory",
+  "own_character": "YourBotCharName",
+  "scan_interval_seconds": [
+    3,
+    8
+  ],
+  "min_reinspect_seconds": 600,
+  "max_inspect_per_cycle": 3,
+  "min_name_confidence": 0.8,
+  "avatar_box": {
+    "dx": -48,
+    "dy": -100,
+    "w": 96,
+    "h": 96
+  },
+  "_comment_click": "The bot double-clicks the sprite above each name tag to open CHARACTER INFO. click_offsets = pixels above the tag text (at 1080p) to try, in order. Game must be 1920x1080, windowed or borderless.",
+  "click_offsets": [
+    -50,
+    -36,
+    -64
+  ],
+  "open_wait_seconds": 0.6,
+  "_comment_zones": "ignore_zones = [x0,y0,x1,y1] fractions of the screen whose text is never read as a name (minimap, quest helper, chat, hotbar).",
+  "ignore_zones": [
+    [
+      0,
+      0,
+      0.15,
+      0.28
+    ],
+    [
+      0.83,
+      0,
+      1,
+      0.21
+    ],
+    [
+      0.2,
+      0.84,
+      0.8,
+      1
+    ],
+    [
+      0.68,
+      0.8,
+      0.8,
+      0.9
+    ]
+  ],
+  "start_hotkey": "f4",
+  "stop_hotkey": "f5",
+  "fail_retry_seconds": 30,
+  "_comment_location": "Park the bot character in front of the FM portal in Henesys, Channel 10. Players next to it get scanned, then skipped for min_reinspect_seconds (10 min).",
+  "gemini_api_key": "",
+  "gemini_model": "gemini-2.5-flash",
+  "_comment_gemini": "Optional. If set, the bot asks Gemini to read the Character Info panel only when its local text reader can't agree on a value."
+}

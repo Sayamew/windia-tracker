@@ -1,0 +1,36 @@
+name: Build Windows EXEs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build exes
+        run: .\build_exe.bat
+        shell: cmd
+      - name: Bundle
+        shell: pwsh
+        run: |
+          Copy-Item SETUP.md dist\SETUP.md
+          Compress-Archive -Path dist\* -DestinationPath MapleScanner-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MapleScanner-windows
+          path: MapleScanner-windows.zip
+      - name: Publish release (always the newest build)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          files: MapleScanner-windows.zip
